@@ -4,6 +4,8 @@
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <uri/UriBraces.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 // const char *ssid = "Wokwi-GUEST";
 // const char *password = "";
@@ -13,15 +15,24 @@
 #define password ""
 #define channel 6
 
+unsigned long lastFetch = 0;
+const unsigned long FETCH_INTERVAL = 60000;
+
 const char *apSsid = "Farol-Aeroporto";
 const char *apPassword = "12345678";
 const char *mdnsName = "farol-aeroporto";
+
+//const char *apiUrl_AviationWeather = "https://aviationweather.gov/api/data/metar?ids=SBKP&format=json";
+const char* apiUrl_AviationWeather = "http://10.13.37.2/SBKP"; //IP do proxy local Wokwi, que redireciona para a API real de METAR
 
 WebServer server(80);
 
 const int LED_PIN_FAROL = 13;
 bool farolStatus = false; //estado do farol, inicialmente desligado
 bool manualOverride = false; //indica se o override manual está ativo, para evitar que a lógica automática interfira durante o override
+
+void parseWeatherData(const String& json);
+void fetchWeatherData();
 
 // ─────────────────────────────────────────────────────────────
 //  Marcadores substituídos em sendHtml():
@@ -498,6 +509,8 @@ void setup()
   if (WiFi.status() == WL_CONNECTED)
   {
     Serial.println("\nConectado ao WiFi!");
+    Serial.print("Gateway: ");
+    Serial.println(WiFi.gatewayIP());
     Serial.print("IP local: ");
     Serial.println(WiFi.localIP());
     if (MDNS.begin(mdnsName))
@@ -570,6 +583,72 @@ void setup()
 
 void loop()
 {
+  // Processa requisições da página web continuamente (Sem travamentos)
   server.handleClient();
-  delay(2);
+  if (millis() - lastFetch >= FETCH_INTERVAL) {
+    lastFetch = millis();
+    fetchWeatherData();
+  }
 }
+
+void fetchWeatherData()
+{
+
+  if(WiFi.status() != WL_CONNECTED){
+    Serial.println("WiFi desconectado. Não é possível buscar dados do tempo.");
+    return;
+  }
+
+  //WiFiClientSecure client;
+  //client.setInsecure(); // Ignora erros de certificado SSL
+
+  HTTPClient http;
+  //http.begin(client, apiUrl_AviationWeather);
+  http.begin(apiUrl_AviationWeather);
+  http.addHeader("User-Agent", "ESP32-FarolAeroporto/1.0");
+  http.addHeader("Accept", "application/json");
+
+  int httpCode = http.GET();
+
+  if(httpCode == HTTP_CODE_OK){
+    String payload = http.getString();
+    Serial.print("Código HTTP: ");
+    Serial.println(httpCode);
+    Serial.println("Dados do tempo recebidos:");
+    Serial.println(payload);
+    parseWeatherData(payload);
+  } else {
+    Serial.print("Erro ao buscar dados do tempo. Código HTTP: ");
+    Serial.println(httpCode);
+  }
+  http.end();
+
+}
+
+void parseWeatherData(const String& json)
+{
+  JsonDocument doc; 
+  DeserializationError error = deserializeJson(doc, json);
+
+  if (error) {
+    Serial.print("Erro ao desserializar JSON: ");
+    Serial.println(error.c_str());
+    return;
+  }
+
+  JsonObject metar = doc[0];
+  if (metar.isNull()) {
+    Serial.println("Nenhum dado METAR encontrado para a estação.");
+    return;
+  }
+    
+  String icaoId = metar["icaoId"];
+  String name = metar["name"];
+
+  printf("METAR para %s (%s):\n", name.c_str(), icaoId.c_str());    
+  
+  return;
+
+
+}
+
