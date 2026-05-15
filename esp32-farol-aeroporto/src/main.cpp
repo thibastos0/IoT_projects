@@ -24,7 +24,8 @@ const char *apPassword = "12345678";
 const char *mdnsName = "farol-aeroporto";
 
 //const char *apiUrl_AviationWeather = "https://aviationweather.gov/api/data/metar?ids=SBKP&format=json";
-const char* apiUrl_AviationWeather = "http://10.108.5.1/SBKP"; // URL de teste proxy para desenvolvimento local (substitua pela URL real da API de METAR acima)
+//const char* apiUrl_AviationWeather = "http://10.108.5.1/SBKP"; // URL de teste proxy para desenvolvimento local (substitua pela URL real da API de METAR acima)
+const char* apiUrl_AviationWeather = "http://192.168.100.200/SBKP"; // na FATEC
 const char* apiUrl_OpenWeather = "https://api.openweathermap.org/data/2.5/weather?lat=-23.007&lon=-47.135&appid=f814b1f74b001e40b3a18bf369b9d48d&units=metric&lang=pt_br";
 
 WebServer server(80);
@@ -649,9 +650,11 @@ void parseWeatherData(const String& json)
     
   String icaoId = metar["icaoId"];
   String name = metar["name"];
+  String cover = metar["cover"];
 
-  printf("METAR para %s (%s):\n", name.c_str(), icaoId.c_str());    
-  
+  printf("METAR para %s (%s):\n.", name.c_str(), icaoId.c_str());    
+  printf("Teto está %s.\n", cover.c_str());
+
   return;
 
 }
@@ -682,7 +685,7 @@ void fetchSunriseSunset()
     Serial.println(payload);
     parseWeatherData_SS(payload);
   } else {
-    Serial.print("Erro ao buscar dados do tempo. Código HTTP: ");
+    Serial.print("Erro ao buscar dados de nascer e pôr do sol. Código HTTP: ");
     Serial.println(httpCode);
   }
   http.end();
@@ -701,23 +704,22 @@ void parseWeatherData_SS(const String& json)
 
   long sunrise  = doc["sys"]["sunrise"];  // Unix timestamp UTC
   long sunset   = doc["sys"]["sunset"];
-  int  timezone = doc["timezone"];
+  int  tz = doc["timezone"];
 
-  // Ajusta para horário local
-  //long sunrise_local = sunrise + timezone;
-  //long sunset_local  = sunset  + timezone;
-
-  // Converte para struct tm
-  struct tm* sr = gmtime((time_t*)&sunrise);
-  struct tm* ss = gmtime((time_t*)&sunset);
+// Converte Unix timestamp para HH:MM local, tudo inline - lambda
+  auto toHHMM = [](long ts, int tz_offset, char* buf) {
+  long local = ts; // + tz_offset; usar para corrigir o fuso horário
+  int h = (local % 86400) / 3600;
+  int m = (local % 3600) / 60;
+  sprintf(buf, "%02d:%02d", h, m);
+  };
 
   char srStr[6], ssStr[6];
-  strftime(srStr, sizeof(srStr), "%H:%M", sr);
-  strftime(ssStr, sizeof(ssStr), "%H:%M", ss);
+  toHHMM(sunrise, tz, srStr);
+  toHHMM(sunset,  tz, ssStr);
 
   Serial.printf("Nascer do sol : %s\n", srStr);
   Serial.printf("Pôr do sol    : %s\n", ssStr);
-  
   return;
 
 }
