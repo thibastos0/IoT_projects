@@ -6,6 +6,7 @@
 #include <uri/UriBraces.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <time.h>
 
 // const char *ssid = "Wokwi-GUEST";
 // const char *password = "";
@@ -23,7 +24,8 @@ const char *apPassword = "12345678";
 const char *mdnsName = "farol-aeroporto";
 
 //const char *apiUrl_AviationWeather = "https://aviationweather.gov/api/data/metar?ids=SBKP&format=json";
-const char* apiUrl_AviationWeather = "http://10.13.37.2/SBKP"; //IP do proxy local Wokwi, que redireciona para a API real de METAR
+const char* apiUrl_AviationWeather = "http://10.108.5.1/SBKP"; // URL de teste proxy para desenvolvimento local (substitua pela URL real da API de METAR acima)
+const char* apiUrl_OpenWeather = "https://api.openweathermap.org/data/2.5/weather?lat=-23.007&lon=-47.135&appid=f814b1f74b001e40b3a18bf369b9d48d&units=metric&lang=pt_br";
 
 WebServer server(80);
 
@@ -32,7 +34,9 @@ bool farolStatus = false; //estado do farol, inicialmente desligado
 bool manualOverride = false; //indica se o override manual está ativo, para evitar que a lógica automática interfira durante o override
 
 void parseWeatherData(const String& json);
+void parseWeatherData_SS(const String& json);
 void fetchWeatherData();
+void fetchSunriseSunset();
 
 // ─────────────────────────────────────────────────────────────
 //  Marcadores substituídos em sendHtml():
@@ -588,6 +592,7 @@ void loop()
   if (millis() - lastFetch >= FETCH_INTERVAL) {
     lastFetch = millis();
     fetchWeatherData();
+    fetchSunriseSunset();
   }
 }
 
@@ -649,6 +654,70 @@ void parseWeatherData(const String& json)
   
   return;
 
-
 }
 
+void fetchSunriseSunset()
+{
+  if(WiFi.status() != WL_CONNECTED){
+    Serial.println("WiFi desconectado. Não é possível buscar dados do nascer e pôr do sol.");
+    return;
+  }
+
+  //WiFiClientSecure client;
+  //client.setInsecure(); // Ignora erros de certificado SSL
+
+  HTTPClient http;
+  //http.begin(client, apiUrl_OpenWeather);
+  http.begin(apiUrl_OpenWeather);
+  http.addHeader("User-Agent", "ESP32-FarolAeroporto/1.0");
+  http.addHeader("Accept", "application/json");
+
+  int httpCode = http.GET();
+
+  if(httpCode == HTTP_CODE_OK){
+    String payload = http.getString();
+    Serial.print("Código HTTP: ");
+    Serial.println(httpCode);
+    Serial.println("Dados do nascer e pôr do sol recebidos:");
+    Serial.println(payload);
+    parseWeatherData_SS(payload);
+  } else {
+    Serial.print("Erro ao buscar dados do tempo. Código HTTP: ");
+    Serial.println(httpCode);
+  }
+  http.end();
+}
+
+void parseWeatherData_SS(const String& json)
+{
+  JsonDocument doc; 
+  DeserializationError error = deserializeJson(doc, json);
+
+  if (error) {
+    Serial.print("Erro ao desserializar JSON: ");
+    Serial.println(error.c_str());
+    return;
+  }
+
+  long sunrise  = doc["sys"]["sunrise"];  // Unix timestamp UTC
+  long sunset   = doc["sys"]["sunset"];
+  int  timezone = doc["timezone"];
+
+  // Ajusta para horário local
+  //long sunrise_local = sunrise + timezone;
+  //long sunset_local  = sunset  + timezone;
+
+  // Converte para struct tm
+  struct tm* sr = gmtime((time_t*)&sunrise);
+  struct tm* ss = gmtime((time_t*)&sunset);
+
+  char srStr[6], ssStr[6];
+  strftime(srStr, sizeof(srStr), "%H:%M", sr);
+  strftime(ssStr, sizeof(ssStr), "%H:%M", ss);
+
+  Serial.printf("Nascer do sol : %s\n", srStr);
+  Serial.printf("Pôr do sol    : %s\n", ssStr);
+  
+  return;
+
+}

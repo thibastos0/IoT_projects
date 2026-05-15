@@ -24,3 +24,4 @@ class Proxy(BaseHTTPRequestHandler):
         print(f"[proxy] {args[0]} {args[1]}")
 
 HTTPServer(("0.0.0.0", 80), Proxy).serve_forever()
+print("Proxy rodando na porta 80, redirecionando para a API de METAR...")
