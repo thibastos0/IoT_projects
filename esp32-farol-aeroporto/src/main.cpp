@@ -513,6 +513,17 @@ void fetchWeatherData()
   http.end();
 }
 
+// Arredondamento de visibilidade conforme escala ICAO Anexo 3:
+//   < 800 m  -> multiplos de 50 m
+//   800-5000 -> multiplos de 100 m
+//   > 5000   -> multiplos de 1000 m
+int roundVisibICAO(float meters) {
+  int v = (int)meters;
+  if (v > 5000)  return (v / 1000) * 1000;
+  if (v >= 800)  return (v / 100)  * 100;
+  return         (v / 50)   * 50;
+}
+
 void parseWeatherData(const String& json)
 {
   JsonDocument doc; 
@@ -524,33 +535,49 @@ void parseWeatherData(const String& json)
     
   String icaoId = metar["icaoId"];
   String name = metar["name"];
-  String cover = metar["cover"];
-  String fltCat = metar["fltCat"];
   String visibStr = metar["visib"].as<String>();
   String lat = metar["lat"].as<String>();
   String lon = metar["lon"].as<String>();
 
-  visibStr.replace("+", ""); 
-  float visib = atof(visibStr.c_str()) * 1609.34f; 
-
-  printf("METAR carregado para %s (%s).\n", name.c_str(), icaoId.c_str());
-
-  printf("Teto está %s.\n", cover.c_str());
-  printf("Categoria de voo: %s.\n", fltCat.c_str());
-  printf("Localização: %s, %s.\n", lat.c_str(), lon.c_str()); //para buscar SS e SS no Openweather
-
-  if (visib < 9999) {
-    printf("Visibilidade: %.2f m.\n", visib);
+  // Visibilidade: o sufixo "+" em "6+" significa ">= 6 SM" = irrestrita -> 9999 m (ICAO)
+  // Sem sufixo: converte SM -> m e arredonda pela escala ICAO Anexo 3
+  int visib;
+  if (visibStr.endsWith("+")) {
+    visib = 9999;
   } else {
-    printf("Visibilidade: 10 km ou mais.\n");
+    visib = roundVisibICAO(atof(visibStr.c_str()) * 1609.34f);
   }
 
-  if ( cover == "OVC" || cover == "BKN") {
-    for (JsonObject cloud : metar["clouds"].as<JsonArray>()) {
-      String type = cloud["cover"];
-      int alt = cloud["base"];
-      printf("Nuvens: %s a %d pés.\n", type.c_str(), alt);
+  printf("METAR carregado para %s (%s).\n", name.c_str(), icaoId.c_str());
+  printf("Localização: %s, %s.\n", lat.c_str(), lon.c_str()); //para buscar SS e SS no Openweather
+
+  if (visib == 9999)
+    printf("Visibilidade: 9999 m (irrestrita >= 10 km)\n");
+  else
+    printf("Visibilidade: %d m\n", visib);
+
+  
+  // Base mais baixa de BKN ou OVC = teto operacional
+  // Percorre todo o array clouds e guarda o menor "base" entre camadas relevantes
+  int    ceilingFt   = -1;
+  String ceilingType = "";
+  for (JsonObject cloud : metar["clouds"].as<JsonArray>()) {
+    String type = cloud["cover"].as<String>();
+    int    base = cloud["base"] | 0;
+    if (type == "BKN" || type == "OVC") {
+      if (ceilingFt < 0 || base < ceilingFt) {
+        ceilingFt   = base;
+        ceilingType = type;
+      }
     }
+  }
+
+  // Log de todas as camadas para diagnostico
+  printf("--- Camadas de nuvem ---\n");
+  for (JsonObject cloud : metar["clouds"].as<JsonArray>()) {
+    printf("  %s a %d pes\n",
+      cloud["cover"].as<const char*>(),
+      cloud["base"] | 0);
   }
 
 }
