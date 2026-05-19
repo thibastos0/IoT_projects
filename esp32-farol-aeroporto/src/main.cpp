@@ -8,6 +8,9 @@
 #include <ArduinoJson.h>
 #include <time.h>
 
+
+// const char *ssid = "Sala Maker";
+// const char *password = "Maker@fatec";
 #define ssid "Wokwi-GUEST"
 #define password ""
 #define channel 6
@@ -19,6 +22,7 @@ const char *apSsid = "Farol-Aeroporto";
 const char *apPassword = "12345678";
 const char *mdnsName = "farol-aeroporto";
 
+//const char *apiUrl_AviationWeather = "https://aviationweather.gov/api/data/metar?ids=SBKP&format=json";
 const char* apiUrl_AviationWeather = "http://192.168.122.1/SBKP"; // na SALA MAKER
 const char* apiUrl_OpenWeather = "https://api.openweathermap.org/data/2.5/weather?lat=-23.007&lon=-47.135&appid=f814b1f74b001e40b3a18bf369b9d48d&units=metric&lang=pt_br";
 
@@ -488,9 +492,15 @@ void loop()
 
 void fetchWeatherData()
 {
+
+    
+  //WiFiClientSecure client;
+  //client.setInsecure(); // Ignora erros de certificado SSL
+
   if(WiFi.status() != WL_CONNECTED) return;
 
   HTTPClient http;
+  //http.begin(client, apiUrl_AviationWeather);
   http.begin(apiUrl_AviationWeather);
   http.addHeader("User-Agent", "ESP32-FarolAeroporto/1.0");
   http.addHeader("Accept", "application/json");
@@ -517,11 +527,32 @@ void parseWeatherData(const String& json)
   String cover = metar["cover"];
   String fltCat = metar["fltCat"];
   String visibStr = metar["visib"].as<String>();
+  String lat = metar["lat"].as<String>();
+  String lon = metar["lon"].as<String>();
 
   visibStr.replace("+", ""); 
   float visib = atof(visibStr.c_str()) * 1609.34f; 
 
-  printf("METAR carregado para %s (%s).\n", name.c_str(), icaoId.c_str());    
+  printf("METAR carregado para %s (%s).\n", name.c_str(), icaoId.c_str());
+
+  printf("Teto está %s.\n", cover.c_str());
+  printf("Categoria de voo: %s.\n", fltCat.c_str());
+  printf("Localização: %s, %s.\n", lat.c_str(), lon.c_str()); //para buscar SS e SS no Openweather
+
+  if (visib < 9999) {
+    printf("Visibilidade: %.2f m.\n", visib);
+  } else {
+    printf("Visibilidade: 10 km ou mais.\n");
+  }
+
+  if ( cover == "OVC" || cover == "BKN") {
+    for (JsonObject cloud : metar["clouds"].as<JsonArray>()) {
+      String type = cloud["cover"];
+      int alt = cloud["base"];
+      printf("Nuvens: %s a %d pés.\n", type.c_str(), alt);
+    }
+  }
+
 }
 
 void fetchSunriseSunset()
