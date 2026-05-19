@@ -651,9 +651,28 @@ void parseWeatherData(const String& json)
   String icaoId = metar["icaoId"];
   String name = metar["name"];
   String cover = metar["cover"];
+  String fltcat = metar["fltcat"];
+  float visib = metar["visib"];
+
+  visib = visib / 0.00062137; // Converter milhas para metros
 
   printf("METAR para %s (%s):\n.", name.c_str(), icaoId.c_str());    
   printf("Teto está %s.\n", cover.c_str());
+  printf("Categoria de voo: %s.\n", fltcat.c_str());
+
+  if (visib < 9999) {
+    printf("Visibilidade: %.2f m.\n", visib);
+  } else {
+    printf("Visibilidade: 10 km ou mais.\n");
+  }
+
+  if ( cover == "OVC" || cover == "BKN") {
+    for (JsonObject cloud : metar["clouds"].as<JsonArray>()) {
+      String type = cloud["cloud"];
+      int alt = cloud["base"];
+      printf("Nuvens: %s a %d pés.\n", type.c_str(), alt);
+    }
+  }
 
   return;
 
