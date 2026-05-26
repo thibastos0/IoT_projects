@@ -30,8 +30,20 @@ WebServer server(80);
 
 const int LED_PIN_FAROL = 13;
 bool farolStatus = false; 
-bool manualOverride = false; 
+bool manualOverride = false;
 
+// Variáveis globais — dados meteorológicos
+int    g_visib       = -1;
+int    g_ceilingFt   = -1;
+int    g_sunrise     = -1;
+int    g_sunset      = -1;
+float  g_lat         = 0.0;
+float  g_lon         = 0.0;
+String g_icaoId      = "";
+String g_stationName = "";
+String g_mode        = "real";
+
+// Declarações de funções
 void parseWeatherData(const String& json);
 void parseWeatherData_SS(const String& json);
 void fetchWeatherData();
@@ -440,6 +452,24 @@ void setup()
   }
 
   // Rotas do Servidor HTTP
+  server.on("/estado", []() {
+    String json = "{";
+    json += "\"visib\":"     + String(g_visib)      + ",";
+    json += "\"ceiling\":"   + String(g_ceilingFt)  + ",";
+    json += "\"sunrise\":"   + String(g_sunrise)    + ",";
+    json += "\"sunset\":"    + String(g_sunset)     + ",";
+    json += "\"lat\":"       + String(g_lat, 4)     + ",";
+    json += "\"lon\":"       + String(g_lon, 4)     + ",";
+    json += "\"farol\":"     + String(farolStatus   ? "true" : "false") + ",";
+    json += "\"override\":"  + String(manualOverride? "true" : "false") + ",";
+    json += "\"mode\":\""    + g_mode               + "\",";
+    json += "\"icao\":\""    + g_icaoId             + "\",";
+    json += "\"station\":\"" + g_stationName        + "\"";
+    json += "}";
+    server.send(200, "application/json", json);
+  });
+
+  
   server.on("/on", []() {
     farolStatus    = true;
     manualOverride = true;
@@ -490,9 +520,12 @@ void loop()
   }
 }
 
+//**************************************************************************
+// Busca e processamento de dados METAR da API AviationWeather
+//**************************************************************************
+
 void fetchWeatherData()
 {
-
     
   //WiFiClientSecure client;
   //client.setInsecure(); // Ignora erros de certificado SSL
@@ -580,7 +613,18 @@ void parseWeatherData(const String& json)
       cloud["base"] | 0);
   }
 
+g_icaoId      = icaoId;
+g_stationName = name;
+g_lat         = atof(lat.c_str());
+g_lon         = atof(lon.c_str());
+g_visib       = visib;
+g_ceilingFt   = ceilingFt;
+
 }
+
+//**************************************************************************
+// Busca dados de nascer e pôr do sol no OpenWeather usando lat/lon do METAR
+//**************************************************************************
 
 void fetchSunriseSunset()
 {
@@ -610,7 +654,7 @@ void parseWeatherData_SS(const String& json)
   int  tz = doc["timezone"];
 
   auto toHHMM = [](long ts, int tz_offset, char* buf) {
-    long local = ts; 
+    long local = ts + tz_offset; 
     int h = (local % 86400) / 3600;
     int m = (local % 3600) / 60;
     sprintf(buf, "%02d:%02d", h, m);
@@ -621,4 +665,8 @@ void parseWeatherData_SS(const String& json)
   toHHMM(sunset,  tz, ssStr);
 
   Serial.printf("Nascer do sol : %s | Pôr do sol : %s\n", srStr, ssStr);
+
+  g_sunrise = atoi(srStr) * 60 + atoi(srStr + 3);
+  g_sunset  = atoi(ssStr) * 60 + atoi(ssStr + 3);
+  
 }
