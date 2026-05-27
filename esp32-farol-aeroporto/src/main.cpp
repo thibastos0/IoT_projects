@@ -23,7 +23,7 @@ const char *apPassword = "12345678";
 const char *mdnsName = "farol-aeroporto";
 
 //const char *apiUrl_AviationWeather = "https://aviationweather.gov/api/data/metar?ids=SBKP&format=json";
-const char* apiUrl_AviationWeather = "http://192.168.122.1/SBKP"; // na SALA MAKER
+//const char* apiUrl_AviationWeather = "http://192.168.122.1/SBKP"; // na SALA MAKER
 const char* apiUrl_OpenWeather = "https://api.openweathermap.org/data/2.5/weather?lat=-23.007&lon=-47.135&appid=f814b1f74b001e40b3a18bf369b9d48d&units=metric&lang=pt_br";
 
 WebServer server(80);
@@ -506,7 +506,27 @@ void setup()
     sendHtml();
   });
 
-  server.begin();
+  server.on("/icao", []() {
+  if (server.hasArg("id")) {
+    String id = server.arg("id");
+    id.toUpperCase();
+    id.trim();
+    g_icaoId = id;
+    fetchWeatherData();
+    fetchSunriseSunset();
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+});
+
+server.on("/modo", []() {
+  if (server.hasArg("v")) {
+    String v = server.arg("v");
+    if (v == "real" || v == "sim") g_mode = v;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+});
+
+  g_icaoId = "SBKP"; // aeroporto padrão ao inicializar
   Serial.println("Servidor HTTP ativo na porta 80");
 }
 
@@ -534,7 +554,8 @@ void fetchWeatherData()
 
   HTTPClient http;
   //http.begin(client, apiUrl_AviationWeather);
-  http.begin(apiUrl_AviationWeather);
+  String url = "https://aviationweather.gov/api/data/metar?ids=" + g_icaoId + "&format=json";
+http.begin(url);
   http.addHeader("User-Agent", "ESP32-FarolAeroporto/1.0");
   http.addHeader("Accept", "application/json");
 
