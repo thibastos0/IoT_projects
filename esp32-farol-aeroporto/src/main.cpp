@@ -492,6 +492,26 @@ void setup()
     sendHtml();
   });
 
+  server.on("/icao", []() {
+  if (server.hasArg("id")) {
+    String id = server.arg("id");
+    id.toUpperCase();
+    id.trim();
+    g_icaoId = id;
+    fetchWeatherData();
+    fetchSunriseSunset();
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+  });
+
+  server.on("/modo", []() {
+  if (server.hasArg("v")) {
+    String v = server.arg("v");
+    if (v == "real" || v == "sim") g_mode = v;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+  });
+
   server.on(UriBraces("/{}"), []() {
     String param = server.pathArg(0);
     if (param == "on") {
@@ -506,27 +526,9 @@ void setup()
     sendHtml();
   });
 
-  server.on("/icao", []() {
-  if (server.hasArg("id")) {
-    String id = server.arg("id");
-    id.toUpperCase();
-    id.trim();
-    g_icaoId = id;
-    fetchWeatherData();
-    fetchSunriseSunset();
-  }
-  server.send(200, "application/json", "{\"ok\":true}");
-});
-
-server.on("/modo", []() {
-  if (server.hasArg("v")) {
-    String v = server.arg("v");
-    if (v == "real" || v == "sim") g_mode = v;
-  }
-  server.send(200, "application/json", "{\"ok\":true}");
-});
-
   g_icaoId = "SBKP"; // aeroporto padrão ao inicializar
+  server.begin();
+ 
   Serial.println("Servidor HTTP ativo na porta 80");
 }
 
@@ -553,9 +555,10 @@ void fetchWeatherData()
   if(WiFi.status() != WL_CONNECTED) return;
 
   HTTPClient http;
-  //http.begin(client, apiUrl_AviationWeather);
-  String url = "https://aviationweather.gov/api/data/metar?ids=" + g_icaoId + "&format=json";
-http.begin(url);
+  //http.begin(client, "https://aviationweather.gov/api/data/metar?ids=" + g_icaoId + "&format=json");
+  //String url = "https://aviationweather.gov/api/data/metar?ids=" + g_icaoId + "&format=json";
+  String url = "http://192.168.122.1/" + g_icaoId; // para testes locais na SALA MAKER
+  http.begin(url);
   http.addHeader("User-Agent", "ESP32-FarolAeroporto/1.0");
   http.addHeader("Accept", "application/json");
 
