@@ -100,7 +100,6 @@ input[type=number]::-webkit-inner-spin-button{display:none}
       ESP32 <span class="text-sim">//</span> Controle-Farol
     </span>
     <div class="d-flex align-items-center gap-3">
-      <span id="condPill" class="badge border font-mono" style="font-size:.68rem;letter-spacing:.12em"></span>
       <div class="btn-group btn-group-sm">
         <button id="btnReal" class="btn btn-outline-info font-mono" style="font-size:.7rem;letter-spacing:.1em" onclick="setMode('real')">REAL</button>
         <button id="btnSim" class="btn btn-outline-warning font-mono" style="font-size:.7rem;letter-spacing:.1em" onclick="setMode('sim')">SIM</button>
@@ -284,14 +283,31 @@ function tick(){
 }
 setInterval(tick,1000);tick();
 
+function loadStation() {
+  const code = document.getElementById('icaoInput').value.toUpperCase().trim();
+  if (code.length < 2) return;
+  addLog('Carregando ICAO: ' + code, 'info');
+  fetch('/icao?id=' + code)
+    .then(() => pollEstado()); // após o C++ buscar, atualiza a tela
+}
+
+function acionarFarol(cmd) { // cmd: 'on', 'off' ou 'auto'
+  fetch('/' + cmd)
+    .then(() => pollEstado());
+}
+
 // Mode REAL / SIM - Restringida a lógica de esmaecimento visual (dim)
-function setMode(m){
-  mode=m;
-  document.getElementById('btnReal').classList.toggle('active',m==='real');
-  document.getElementById('btnSim').classList.toggle('active',m==='sim');
+function setMode(m, notificar = true) {
+  mode = m;
+  document.getElementById('btnReal').classList.toggle('active', m === 'real');
+  document.getElementById('btnSim').classList.toggle('active',  m === 'sim');
   dim('simCards',m==='real');
   dim('realCards',m==='sim');
   addLog('Fonte ativa alterada para: '+m.toUpperCase(),'info');
+
+  if (notificar) {
+    fetch('/modo?v=' + m);
+  }
 }
 
 // Controla opacidade dos cards baseado no modo selecionado
@@ -303,45 +319,70 @@ function dim(id,on){
   });
 }
 
-// ICAO
-function loadStation(){
-  const code=document.getElementById('icaoInput').value.toUpperCase().trim();
-  document.getElementById('icaoInput').value=code;
-  const name=STATIONS[code]||('Estacao '+code);
-  document.getElementById('stationName').textContent=name;
-  addLog('Carregando ICAO: '+code,'info');
-  fetchReal(code);
-}
-
-function fetchReal(code){
-  const sr=rndTime(5,7),ss=rndTime(17,19);
-  const ceil=Math.round((Math.random()*9000+500)/100)*100;
-  const vis=Math.round((Math.random()*9000+500)/100)*100;
-  document.getElementById('r-sunrise').textContent=sr;
-  document.getElementById('r-sunset').textContent=ss;
-  document.getElementById('r-ceiling').textContent=ceil;
-  document.getElementById('r-vis').textContent=vis;
-  setCond(ceil>=1500&&vis>=5000?'VMC':'IMC');
-}
-
 function rndTime(a,b){
   const h=Math.floor(Math.random()*(b-a)+a),m=Math.floor(Math.random()*60);
   return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
 }
 
-function setCond(c){
-  const ok=c==='VMC';
-  ['condPill','condPill2'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el) {
-      el.textContent=c;
-      el.className=ok
-        ?'badge border font-mono bg-success bg-opacity-10 text-success border-success'
-        :'badge border font-mono bg-danger bg-opacity-10 text-danger border-danger';
-      el.style.fontSize='.68rem';el.style.letterSpacing='.12em';
-    }
-  });
+function setCond(c) {
+  const ok = c === 'VMC';
+  const el = document.getElementById('condPill2');
+  el.textContent = c;
+  el.className = ok
+    ? 'badge border font-mono bg-success bg-opacity-10 text-success border-success'
+    : 'badge border font-mono bg-danger  bg-opacity-10 text-danger  border-danger';
+  el.style.fontSize      = '.68rem';
+  el.style.letterSpacing = '.12em';
 }
+
+function minToHHMM(min) {
+  if (min < 0) return '—';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+function atualizarTela(data) {
+  // Dados meteorológicos reais
+  document.getElementById('r-sunrise').textContent = minToHHMM(data.sunrise);
+  document.getElementById('r-sunset').textContent  = minToHHMM(data.sunset);
+  document.getElementById('r-ceiling').textContent = data.ceiling >= 0 ? data.ceiling : '—';
+  document.getElementById('r-vis').textContent     = data.visib >= 0   ? data.visib   : '—';
+
+  // Nome da estação e ICAO
+  document.getElementById('stationName').textContent = data.station || '—';
+  document.getElementById('icaoInput').value         = data.icao   || '';
+
+  // Condição VMC/IMC — calculada aqui com base nos dados recebidos
+  const imc = (data.ceiling >= 0 && data.ceiling < 1500)
+           || (data.visib   >= 0 && data.visib   < 5000);
+  const cond = imc ? 'IMC' : 'VMC';
+  setCond(cond); // função que já existe no seu JS
+
+  // Status do farol
+  const led    = document.getElementById('equipLed');
+  const status = document.getElementById('equipStatus');
+  led.className    = data.farol ? 'led led-on led-pulse' : 'led led-off';
+  status.textContent = data.farol ? 'LIGADO' : 'DESLIGADO';
+  status.style.color = data.farol ? '#00e676' : '#3a4a5c';
+
+  // Badge de override
+  const badge = document.getElementById('overrideBadge');
+  if (badge) badge.textContent = data.override ? 'MANUAL' : 'AUTO';
+
+  // Modo ativo — sincroniza o toggle visual com o que o C++ tem
+  setMode(data.mode, false); // o segundo argumento false = não chama fetch de volta
+}
+
+function pollEstado() {
+  fetch('/estado')
+    .then(r => r.json())
+    .then(data => atualizarTela(data))
+    .catch(err => console.warn('Erro ao buscar /estado:', err));
+}
+
+setInterval(pollEstado, 30000); // atualiza a cada 30 s
+pollEstado();                   // chama imediatamente ao carregar
 
 function addLog(msg,type){
   const n=new Date(),z=v=>String(v).padStart(2,'0');
@@ -392,15 +433,15 @@ addLog('Sistema inicializado no navegador.','info');
       "<span class=\"badge bg-warning bg-opacity-10 border border-warning text-warning font-mono\" style=\"font-size:.52rem\">MODO MANUAL</span>");
     
     Htmlresponse.replace("%%DYNAMIC_CONTROLS%%",
-      "<a href=\"/auto\" class=\"btn btn-warning font-mono flex-fill text-center\" style=\"font-size:.8rem;letter-spacing:.12em\">"
-      "&#9842; RETOMAR CONTROLE AUTOMÁTICO</a>");
+      "<button onclick=\"acionarFarol('auto')\" class=\"btn btn-warning font-mono flex-fill text-center\" style=\"font-size:.8rem;letter-spacing:.12em\">"
+      "&#9842; RETOMAR CONTROLE AUTOMÁTICO</button>");
   } else {
     Htmlresponse.replace("%%OVERRIDE_BADGE%%",
       "<span class=\"badge bg-success bg-opacity-10 border border-success text-success font-mono\" style=\"font-size:.52rem\">MODO AUTOMÁTICO</span>");
     
     Htmlresponse.replace("%%DYNAMIC_CONTROLS%%",
-      "<a href=\"/on\" class=\"btn btn-outline-success font-mono flex-fill text-center\" style=\"font-size:.8rem;letter-spacing:.12em\">&#9654; FORÇAR LIGAR</a>"
-      "<a href=\"/off\" class=\"btn btn-outline-danger font-mono flex-fill text-center\" style=\"font-size:.8rem;letter-spacing:.12em\">&#9646;&#9646; FORÇAR DESLIGAR</a>");
+      "<button onclick=\"acionarFarol('on')\"   class=\"btn btn-outline-success font-mono flex-fill\" style=\"font-size:.8rem;letter-spacing:.12em\">&#9654; LIGAR</button>"
+      "<button onclick=\"acionarFarol('off')\"  class=\"btn btn-outline-danger  font-mono flex-fill\" style=\"font-size:.8rem;letter-spacing:.12em\">&#9646;&#9646; DESLIGAR</button>");
   }
 
   server.send(200, "text/html", Htmlresponse);
