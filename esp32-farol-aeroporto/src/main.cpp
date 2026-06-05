@@ -48,7 +48,7 @@ void parseWeatherData(const String& json);
 void parseWeatherData_SS(const String& json);
 void fetchWeatherData();
 void fetchSunriseSunset();
-
+void avaliarFarol();
 // Página HTML estilizada e otimizada
 void sendHtml()
 {
@@ -511,27 +511,27 @@ void setup()
   });
 
   
-  server.on("/on", []() {
+server.on("/on", []() {
     farolStatus    = true;
     manualOverride = true;
     digitalWrite(LED_PIN_FAROL, HIGH);
-    Serial.println("Farol LIGADO (Sobrescrita Manual)");
-    sendHtml();
-  });
+    Serial.println("Farol LIGADO (Manual)");
+    server.send(200, "application/json", "{\"ok\":true}");
+});
 
-  server.on("/off", []() {
+server.on("/off", []() {
     farolStatus    = false;
     manualOverride = true;
     digitalWrite(LED_PIN_FAROL, LOW);
-    Serial.println("Farol DESLIGADO (Sobrescrita Manual)");
-    sendHtml();
-  });
+    Serial.println("Farol DESLIGADO (Manual)");
+    server.send(200, "application/json", "{\"ok\":true}");
+});
 
-  server.on("/auto", []() {
+server.on("/auto", []() {
     manualOverride = false;
-    Serial.println("Controle devolvido para a lógica automática.");
-    sendHtml();
-  });
+    Serial.println("Controle devolvido para automático.");
+    server.send(200, "application/json", "{\"ok\":true}");
+});
 
   server.on("/icao", []() {
   if (server.hasArg("id")) {
@@ -734,4 +734,27 @@ void parseWeatherData_SS(const String& json)
   g_sunrise = atoi(srStr) * 60 + atoi(srStr + 3);
   g_sunset  = atoi(ssStr) * 60 + atoi(ssStr + 3);
   
+}
+
+void avaliarFarol() {
+  if (manualOverride) return;
+  if (g_sunrise < 0 || g_sunset < 0) return; // SR/SS ainda não carregados
+
+  struct tm t;
+  if (!getLocalTime(&t)) return;
+  int agora = t.tm_hour * 60 + t.tm_min;
+
+  bool ehNoite = (agora < g_sunrise || agora >= g_sunset);
+  bool ehIMC   = (g_ceilingFt >= 0 && g_ceilingFt < 1500)
+              || (g_visib     >= 0 && g_visib     < 5000);
+
+  bool deveLigar = ehNoite || ehIMC;
+
+  if (deveLigar != farolStatus) {
+    farolStatus = deveLigar;
+    digitalWrite(LED_PIN_FAROL, deveLigar ? HIGH : LOW);
+    Serial.printf("Farol %s (AUTO) — Noite:%d IMC:%d Agora:%d SR:%d SS:%d\n",
+      deveLigar ? "LIGADO" : "DESLIGADO",
+      ehNoite, ehIMC, agora, g_sunrise, g_sunset);
+  }
 }
