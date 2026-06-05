@@ -270,14 +270,6 @@ input[type=number]::-webkit-inner-spin-button{display:none}
 <script>
 let mode='real';
 
-const STATIONS={
-  'SBGR':'Guarulhos / Cumbica - SP','SBSP':'Congonhas - SP',
-  'SBBR':'Brasilia Internacional','SBGL':'Galeao - RJ',
-  'SBSV':'Salvador - BA','SBCF':'Tancredo Neves - MG',
-  'SBRF':'Recife - PE','SBPA':'Porto Alegre - RS',
-  'SBCT':'Curitiba - PR','SBFZ':'Fortaleza - CE'
-};
-
 // Clock UTC
 function tick(){
   const n=new Date(),z=v=>String(v).padStart(2,'0');
@@ -319,11 +311,6 @@ function dim(id,on){
     c.style.pointerEvents=on?'none':'';
     c.style.transition='opacity .3s';
   });
-}
-
-function rndTime(a,b){
-  const h=Math.floor(Math.random()*(b-a)+a),m=Math.floor(Math.random()*60);
-  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
 }
 
 function setCond(c) {
