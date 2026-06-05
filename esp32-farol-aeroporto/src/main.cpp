@@ -232,11 +232,11 @@ input[type=number]::-webkit-inner-spin-button{display:none}
         <div class="bg-panel border b-dark rounded p-3 h-100 position-relative overflow-hidden card-stripe-f">
           <div class="d-flex justify-content-between align-items-start mb-2">
             <span class="font-mono text-dim" style="font-size:.6rem;letter-spacing:.13em">STATUS DO HARDWARE</span>
-            %%OVERRIDE_BADGE%%
+            <span id="overrideBadge" class="badge bg-success bg-opacity-10 border border-success text-success font-mono" style="font-size:.52rem">AUTO</span>
           </div>
           <div class="d-flex align-items-center gap-3">
-            <span class="led %%LED_CLS%% %%LED_PULSE%%"></span>
-            <span class="font-mono fw-bold %%FAROL_CLASS%%" style="font-size:1.8rem;letter-spacing:.15em">%%FAROL_STATUS%%</span>
+            <span class="led led-off" id="equipLed"></span>
+            <span class="font-mono fw-bold text-danger" id="equipStatus" style="font-size:1.8rem;letter-spacing:.15em">DESLIGADO</span>
           </div>
           <small class="text-white opacity-75 font-mono" style="font-size:.6rem;letter-spacing:.1em">
             Fonte: GPIO 13 · Monitoramento em Tempo Real
@@ -250,8 +250,11 @@ input[type=number]::-webkit-inner-spin-button{display:none}
             <span class="font-mono text-dim" style="font-size:.6rem;letter-spacing:.13em">CONTROLE DE OPERAÇÃO</span>
             <span class="badge bg-info bg-opacity-10 border border-info text-info font-mono" style="font-size:.52rem">INTERRUPTOR</span>
           </div>
-          <div class="d-flex gap-2">
-            %%DYNAMIC_CONTROLS%%
+          <div class="d-flex gap-2" id="controlesDiv">
+            <button onclick="acionarFarol('on')"  class="btn btn-outline-success font-mono flex-fill" style="font-size:.8rem;letter-spacing:.12em">&#9654; LIGAR</button>
+            <button onclick="acionarFarol('off')" class="btn btn-outline-danger  font-mono flex-fill" style="font-size:.8rem;letter-spacing:.12em">&#9646;&#9646; DESLIGAR</button>
+            <!-- botão auto inicia oculto: d-none -->
+            <button onclick="acionarFarol('auto')" class="btn btn-warning font-mono flex-fill d-none" id="btnAuto" style="font-size:.8rem;letter-spacing:.12em">&#9842; AUTO</button>
           </div>
           <small class="text-white opacity-75 font-mono mt-2 d-block" style="font-size:.6rem;letter-spacing:.1em">
             O comando manual sobrescreve a automação de leitura de teto/visibilidade.
@@ -355,6 +358,14 @@ function atualizarTela(data) {
   const badge = document.getElementById('overrideBadge');
   if (badge) badge.textContent = data.override ? 'MANUAL' : 'AUTO';
 
+  // Botões de controle — exibe AUTO só quando em override manual
+  const btnAuto = document.getElementById('btnAuto');
+  if (data.override) {
+    btnAuto.classList.remove('d-none');
+  } else {
+    btnAuto.classList.add('d-none');
+  }
+
   // Modo ativo — sincroniza o toggle visual com o que o C++ tem
   setMode(data.mode, false); // o segundo argumento false = não chama fetch de volta
 }
@@ -391,32 +402,8 @@ addLog('Sistema inicializado no navegador.','info');
 </body>
 </html>)RAW";
 
-  // Status textual e cor do Hardware
-  Htmlresponse.replace("%%FAROL_STATUS%%", farolStatus ? "LIGADO"       : "DESLIGADO");
-  Htmlresponse.replace("%%FAROL_CLASS%%",  farolStatus ? "text-success" : "text-danger");
-
-  // LED do painel
-  Htmlresponse.replace("%%LED_CLS%%",   farolStatus ? "led-on"  : "led-off");
-  Htmlresponse.replace("%%LED_PULSE%%", farolStatus ? "led-pulse" : "");
-
-  // Badge de status de automação e injeção dinâmica de botões
-  if (manualOverride) {
-    Htmlresponse.replace("%%OVERRIDE_BADGE%%",
-      "<span class=\"badge bg-warning bg-opacity-10 border border-warning text-warning font-mono\" style=\"font-size:.52rem\">MODO MANUAL</span>");
-    
-    Htmlresponse.replace("%%DYNAMIC_CONTROLS%%",
-      "<button onclick=\"acionarFarol('auto')\" class=\"btn btn-warning font-mono flex-fill text-center\" style=\"font-size:.8rem;letter-spacing:.12em\">"
-      "&#9842; RETOMAR CONTROLE AUTOMÁTICO</button>");
-  } else {
-    Htmlresponse.replace("%%OVERRIDE_BADGE%%",
-      "<span class=\"badge bg-success bg-opacity-10 border border-success text-success font-mono\" style=\"font-size:.52rem\">MODO AUTOMÁTICO</span>");
-    
-    Htmlresponse.replace("%%DYNAMIC_CONTROLS%%",
-      "<button onclick=\"acionarFarol('on')\"   class=\"btn btn-outline-success font-mono flex-fill\" style=\"font-size:.8rem;letter-spacing:.12em\">&#9654; LIGAR</button>"
-      "<button onclick=\"acionarFarol('off')\"  class=\"btn btn-outline-danger  font-mono flex-fill\" style=\"font-size:.8rem;letter-spacing:.12em\">&#9646;&#9646; DESLIGAR</button>");
-  }
-
   server.send(200, "text/html", Htmlresponse);
+  
 }
 
 void setup()
