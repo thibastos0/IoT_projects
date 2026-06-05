@@ -42,6 +42,7 @@ float  g_lon         = 0.0;
 String g_icaoId      = "";
 String g_stationName = "";
 String g_mode        = "real";
+bool   g_ssAtualizado = false; 
 
 // Declarações de funções
 void parseWeatherData(const String& json);
@@ -395,19 +396,6 @@ function addLog(msg,type){
   if(box.children.length>100)box.removeChild(box.lastChild);
 }
 
-// Poll simulado (modo real)
-function poll(){
-  if(mode!=='real')return;
-  const c=parseInt(document.getElementById('r-ceiling').textContent)||3500;
-  const v=parseInt(document.getElementById('r-vis').textContent)||9000;
-  const nc=Math.max(0,c+(Math.random()>.5?100:-100));
-  const nv=Math.max(0,Math.min(9999,v+(Math.random()>.5?100:-100)));
-  document.getElementById('r-ceiling').textContent=nc;
-  document.getElementById('r-vis').textContent=nv;
-  setCond(nc>=1500&&nv>=5000?'VMC':'IMC');
-}
-setInterval(poll,15000);
-
 // Configuração inicial das abas visuais
 setTimeout(() => {
   setMode('real');
@@ -481,6 +469,11 @@ void setup()
       Serial.print(mdnsName);
       Serial.println(".local");
     }
+    configTime(-3 * 3600, 0, "poll.ntp.org", "a.ntp.br");
+    Serial.println("Aguardando NTP...");
+    struct tm t;
+    while (!getLocalTime(&t)) delay(500);
+    Serial.println("NTP sincronizado.");
   }
   else
   {
@@ -533,17 +526,18 @@ server.on("/auto", []() {
     server.send(200, "application/json", "{\"ok\":true}");
 });
 
-  server.on("/icao", []() {
+ server.on("/icao", []() {
   if (server.hasArg("id")) {
     String id = server.arg("id");
     id.toUpperCase();
     id.trim();
     g_icaoId = id;
-    fetchWeatherData();
-    fetchSunriseSunset();
+    g_ssAtualizado = false;     
+    fetchWeatherData();           
+    fetchSunriseSunset();         
   }
   server.send(200, "application/json", "{\"ok\":true}");
-  });
+});
 
   server.on("/modo", []() {
   if (server.hasArg("v")) {
@@ -698,7 +692,12 @@ void fetchSunriseSunset()
   if(WiFi.status() != WL_CONNECTED) return;
 
   HTTPClient http;
-  http.begin(apiUrl_OpenWeather);
+  HTTPClient http;
+  String url = "https://api.openweathermap.org/data/2.5/weather?lat="
+             + String(g_lat, 4)
+             + "&lon=" + String(g_lon, 4)
+             + "&appid=f814b1f74b001e40b3a18bf369b9d48d&units=metric&lang=pt_br";
+  http.begin(url);
   http.addHeader("User-Agent", "ESP32-FarolAeroporto/1.0");
   http.addHeader("Accept", "application/json");
 
@@ -735,6 +734,7 @@ void parseWeatherData_SS(const String& json)
 
   g_sunrise = atoi(srStr) * 60 + atoi(srStr + 3);
   g_sunset  = atoi(ssStr) * 60 + atoi(ssStr + 3);
+  g_ssAtualizado = true;
   
 }
 
