@@ -354,11 +354,7 @@ function atualizarTela(data) {
   document.getElementById('stationName').textContent = data.station || '—';
   document.getElementById('icaoInput').value         = data.icao   || '';
 
-  // Condição VMC/IMC — calculada aqui com base nos dados recebidos
-  const imc = (data.ceiling >= 0 && data.ceiling < 1500)
-           || (data.visib   >= 0 && data.visib   < 5000);
-  const cond = imc ? 'IMC' : 'VMC';
-  setCond(cond); // função que já existe no seu JS
+  setCond(data.condicao);
 
   // Status do farol
   const led    = document.getElementById('equipLed');
@@ -498,6 +494,8 @@ void setup()
     json += "\"override\":"  + String(manualOverride? "true" : "false") + ",";
     json += "\"mode\":\""    + g_mode               + "\",";
     json += "\"icao\":\""    + g_icaoId             + "\",";
+    bool imc = (g_ceilingFt >= 0 && g_ceilingFt < 1500)
+        || (g_visib     >= 0 && g_visib     < 5000);
     json += "\"station\":\"" + g_stationName        + "\"";
     json += "}";
     server.send(200, "application/json", json);
@@ -532,7 +530,7 @@ server.on("/auto", []() {
     id.toUpperCase();
     id.trim();
     g_icaoId = id;
-    g_ssAtualizado = false;     
+    g_ssAtualizado = false;      // ← força nova busca de SR/SS
     fetchWeatherData();           
     fetchSunriseSunset();         
   }
