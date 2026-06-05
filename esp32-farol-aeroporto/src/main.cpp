@@ -24,7 +24,7 @@ const char *mdnsName = "farol-aeroporto";
 
 //const char *apiUrl_AviationWeather = "https://aviationweather.gov/api/data/metar?ids=SBKP&format=json";
 //const char* apiUrl_AviationWeather = "http://192.168.122.1/SBKP"; // na SALA MAKER
-const char* apiUrl_OpenWeather = "https://api.openweathermap.org/data/2.5/weather?lat=-23.007&lon=-47.135&appid=f814b1f74b001e40b3a18bf369b9d48d&units=metric&lang=pt_br";
+//const char* apiUrl_OpenWeather = "https://api.openweathermap.org/data/2.5/weather?lat=-23.007&lon=-47.135&appid=f814b1f74b001e40b3a18bf369b9d48d&units=metric&lang=pt_br";
 
 WebServer server(80);
 
@@ -32,7 +32,7 @@ const int LED_PIN_FAROL = 13;
 bool farolStatus = false; 
 bool manualOverride = false;
 
-// Variáveis globais — dados meteorológicos
+// Variáveis globais — dados meteorológicos e outras informações relevantes
 int    g_visib       = -1;
 int    g_ceilingFt   = -1;
 int    g_sunrise     = -1;
@@ -40,14 +40,16 @@ int    g_sunset      = -1;
 float  g_lat         = 0.0;
 float  g_lon         = 0.0;
 String g_icaoId      = "";
-String g_stationName = "";
+String g_aeroportoName = "";
 String g_mode        = "real";
+bool g_ssAtualizado = false;
 
 // Declarações de funções
 void parseWeatherData(const String& json);
 void parseWeatherData_SS(const String& json);
 void fetchWeatherData();
 void fetchSunriseSunset();
+void avaliarFarol();
 
 // Página HTML estilizada e otimizada
 void sendHtml()
@@ -115,8 +117,8 @@ input[type=number]::-webkit-inner-spin-button{display:none}
     <input id="icaoInput" type="text" maxlength="4" placeholder="SBGR" value="SBGR"
            class="form-control form-control-sm inp-icao font-mono" style="width:88px"/>
     <button class="btn btn-sm btn-outline-info font-mono" style="font-size:.68rem;letter-spacing:.1em"
-            onclick="loadStation()">CARREGAR</button>
-    <span id="stationName" class="flex-grow-1 text-white" style="font-size:.9rem">—</span>
+            onclick="loadAeroporto()">CARREGAR</button>
+    <span id="aeroportoName" class="flex-grow-1 text-white" style="font-size:.9rem">—</span>
     <span id="condPill2" class="badge border font-mono" style="font-size:.68rem;letter-spacing:.12em"></span>
   </div>
 
@@ -268,7 +270,7 @@ input[type=number]::-webkit-inner-spin-button{display:none}
 <script>
 let mode='real';
 
-const STATIONS={
+const AEROPORTOS={
   'SBGR':'Guarulhos / Cumbica - SP','SBSP':'Congonhas - SP',
   'SBBR':'Brasilia Internacional','SBGL':'Galeao - RJ',
   'SBSV':'Salvador - BA','SBCF':'Tancredo Neves - MG',
@@ -283,7 +285,7 @@ function tick(){
 }
 setInterval(tick,1000);tick();
 
-function loadStation() {
+function loadAeroporto() {
   const code = document.getElementById('icaoInput').value.toUpperCase().trim();
   if (code.length < 2) return;
   addLog('Carregando ICAO: ' + code, 'info');
@@ -350,14 +352,10 @@ function atualizarTela(data) {
   document.getElementById('r-vis').textContent     = data.visib >= 0   ? data.visib   : '—';
 
   // Nome da estação e ICAO
-  document.getElementById('stationName').textContent = data.station || '—';
+  document.getElementById('aeroportoName').textContent = data.aeroporto || '—';
   document.getElementById('icaoInput').value         = data.icao   || '';
 
-  // Condição VMC/IMC — calculada aqui com base nos dados recebidos
-  const imc = (data.ceiling >= 0 && data.ceiling < 1500)
-           || (data.visib   >= 0 && data.visib   < 5000);
-  const cond = imc ? 'IMC' : 'VMC';
-  setCond(cond); // função que já existe no seu JS
+  setCond(data.condicao);
 
   // Status do farol
   const led    = document.getElementById('equipLed');
@@ -395,23 +393,10 @@ function addLog(msg,type){
   if(box.children.length>100)box.removeChild(box.lastChild);
 }
 
-// Poll simulado (modo real)
-function poll(){
-  if(mode!=='real')return;
-  const c=parseInt(document.getElementById('r-ceiling').textContent)||3500;
-  const v=parseInt(document.getElementById('r-vis').textContent)||9000;
-  const nc=Math.max(0,c+(Math.random()>.5?100:-100));
-  const nv=Math.max(0,Math.min(9999,v+(Math.random()>.5?100:-100)));
-  document.getElementById('r-ceiling').textContent=nc;
-  document.getElementById('r-vis').textContent=nv;
-  setCond(nc>=1500&&nv>=5000?'VMC':'IMC');
-}
-setInterval(poll,15000);
-
 // Configuração inicial das abas visuais
 setTimeout(() => {
   setMode('real');
-  loadStation();
+  loadAeroporto();
 }, 200);
 
 addLog('Sistema inicializado no navegador.','info');
@@ -481,6 +466,11 @@ void setup()
       Serial.print(mdnsName);
       Serial.println(".local");
     }
+    configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov", "a.ntp.br"); // Configura fuso horário GMT-3 e servidores NTP sincronizados para o ESP32
+    Serial.println("Sincronizando horário via NTP...");
+    struct tm t;
+    while(!getLocalTime(&t))delay(500);
+    Serial.println("Horário sincronizado: " + String(t.tm_hour) + ":" + String(t.tm_min) + ":" + String(t.tm_sec));
   }
   else
   {
@@ -494,6 +484,8 @@ void setup()
 
   // Rotas do Servidor HTTP
   server.on("/estado", []() {
+    bool imc = (g_ceilingFt >= 0 && g_ceilingFt < 1500)
+        || (g_visib     >= 0 && g_visib     < 5000);
     String json = "{";
     json += "\"visib\":"     + String(g_visib)      + ",";
     json += "\"ceiling\":"   + String(g_ceilingFt)  + ",";
@@ -501,11 +493,12 @@ void setup()
     json += "\"sunset\":"    + String(g_sunset)     + ",";
     json += "\"lat\":"       + String(g_lat, 4)     + ",";
     json += "\"lon\":"       + String(g_lon, 4)     + ",";
+    json += "\"condicao\":\"" + String(imc ? "IMC" : "VMC") + "\",";
     json += "\"farol\":"     + String(farolStatus   ? "true" : "false") + ",";
     json += "\"override\":"  + String(manualOverride? "true" : "false") + ",";
     json += "\"mode\":\""    + g_mode               + "\",";
     json += "\"icao\":\""    + g_icaoId             + "\",";
-    json += "\"station\":\"" + g_stationName        + "\"";
+    json += "\"aeroporto\":\"" + g_aeroportoName        + "\"";
     json += "}";
     server.send(200, "application/json", json);
   });
@@ -515,22 +508,22 @@ void setup()
     farolStatus    = true;
     manualOverride = true;
     digitalWrite(LED_PIN_FAROL, HIGH);
-    Serial.println("Farol LIGADO (Sobrescrita Manual)");
-    sendHtml();
+    Serial.println("Farol LIGADO (Manual)");    
+    server.send(200, "application/json", "{\"ok\":true}");
   });
 
   server.on("/off", []() {
     farolStatus    = false;
     manualOverride = true;
     digitalWrite(LED_PIN_FAROL, LOW);
-    Serial.println("Farol DESLIGADO (Sobrescrita Manual)");
-    sendHtml();
+    Serial.println("Farol DESLIGADO (Manual)");
+    server.send(200, "application/json", "{\"ok\":true}");
   });
 
   server.on("/auto", []() {
     manualOverride = false;
     Serial.println("Controle devolvido para a lógica automática.");
-    sendHtml();
+    server.send(200, "application/json", "{\"ok\":true}");
   });
 
   server.on("/icao", []() {
@@ -539,6 +532,7 @@ void setup()
     id.toUpperCase();
     id.trim();
     g_icaoId = id;
+    g_ssAtualizado = false;
     fetchWeatherData();
     fetchSunriseSunset();
   }
@@ -579,7 +573,8 @@ void loop()
   if (millis() - lastFetch >= FETCH_INTERVAL) {
     lastFetch = millis();
     fetchWeatherData();
-    fetchSunriseSunset();
+    if (!g_ssAtualizado) fetchSunriseSunset();
+    avaliarFarol();
   }
 }
 
@@ -679,7 +674,7 @@ void parseWeatherData(const String& json)
   }
 
 g_icaoId      = icaoId;
-g_stationName = name;
+g_aeroportoName = name;
 g_lat         = atof(lat.c_str());
 g_lon         = atof(lon.c_str());
 g_visib       = visib;
@@ -695,8 +690,14 @@ void fetchSunriseSunset()
 {
   if(WiFi.status() != WL_CONNECTED) return;
 
+  String url = "https://api.openweathermap.org/data/2.5/weather?lat="
+           + String(g_lat, 4)
+           + "&lon=" + String(g_lon, 4)
+           + "&appid=f814b1f74b001e40b3a18bf369b9d48d&units=metric&lang=pt_br";
+
   HTTPClient http;
-  http.begin(apiUrl_OpenWeather);
+  //http.begin(apiUrl_OpenWeather);
+  http.begin(url);
   http.addHeader("User-Agent", "ESP32-FarolAeroporto/1.0");
   http.addHeader("Accept", "application/json");
 
@@ -733,5 +734,30 @@ void parseWeatherData_SS(const String& json)
 
   g_sunrise = atoi(srStr) * 60 + atoi(srStr + 3);
   g_sunset  = atoi(ssStr) * 60 + atoi(ssStr + 3);
+  g_ssAtualizado = true;
   
+}
+
+void avaliarFarol() 
+{
+  if (manualOverride) return;
+  if (g_sunrise < 0 || g_sunset < 0) return; // SR/SS ainda não carregados
+
+  struct tm t;
+  if (!getLocalTime(&t)) return;
+  int agora = t.tm_hour * 60 + t.tm_min;
+
+  bool ehNoite = (agora < g_sunrise || agora >= g_sunset);
+  bool ehIMC   = (g_ceilingFt >= 0 && g_ceilingFt < 1500)
+              || (g_visib     >= 0 && g_visib     < 5000);
+
+  bool deveLigar = ehNoite || ehIMC;
+
+  if (deveLigar != farolStatus) {
+    farolStatus = deveLigar;
+    digitalWrite(LED_PIN_FAROL, deveLigar ? HIGH : LOW);
+    Serial.printf("Farol %s (AUTO) — Noite:%d IMC:%d Agora:%d SR:%d SS:%d\n",
+      deveLigar ? "LIGADO" : "DESLIGADO",
+      ehNoite, ehIMC, agora, g_sunrise, g_sunset);
+  }
 }
