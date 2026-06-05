@@ -576,10 +576,12 @@ server.on("/auto", []() {
 void loop()
 {
   server.handleClient();
+
   if (millis() - lastFetch >= FETCH_INTERVAL) {
     lastFetch = millis();
     fetchWeatherData();
-    fetchSunriseSunset();
+    if (!g_ssAtualizado) fetchSunriseSunset();
+    avaliarFarol();
   }
 }
 
