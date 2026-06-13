@@ -3,7 +3,6 @@
 #include <WiFiClient.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
-#include <uri/UriBraces.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <time.h>
@@ -43,6 +42,12 @@ String g_icaoId      = "";
 String g_aeroportoName = "";
 String g_mode        = "real";
 bool   g_ssAtualizado = false; 
+
+// Variáveis de simulação — preenchidas pelo formulário HTML
+int g_sim_visib     = 9000;
+int g_sim_ceilingFt = 3500;
+int g_sim_sunrise   = 330;  // 05:30 em minutos
+int g_sim_sunset    = 1092; // 18:12 em minutos
 
 // Declarações de funções
 void parseWeatherData(const String& json);
@@ -114,7 +119,7 @@ input[type=number]::-webkit-inner-spin-button{display:none}
 
   <div class="bg-panel border b-dark rounded p-2 d-flex flex-wrap align-items-center gap-2">
     <label class="font-mono text-dim mb-0" style="font-size:.7rem;letter-spacing:.14em">ICAO</label>
-    <input id="icaoInput" type="text" maxlength="4" placeholder="SBGR" value="SBGR"
+    <input id="icaoInput" type="text" maxlength="4" placeholder="SBKP" value="SBKP"
            class="form-control form-control-sm inp-icao font-mono" style="width:88px"/>
     <button class="btn btn-sm btn-outline-info font-mono" style="font-size:.68rem;letter-spacing:.1em"
             onclick="loadAeroporto()">CARREGAR</button>
@@ -183,7 +188,7 @@ input[type=number]::-webkit-inner-spin-button{display:none}
             <span class="font-mono text-dim" style="font-size:.6rem;letter-spacing:.13em">NASCER DO SOL</span>
             <span class="badge bg-warning bg-opacity-10 border border-warning text-warning font-mono" style="font-size:.52rem">SIM</span>
           </div>
-          <input id="s-sunrise" type="time" value="05:48" class="form-control form-control-sm inp-sim"/>
+          <input id="s-sunrise" type="time"   value="05:48" class="form-control form-control-sm inp-sim" onchange="enviarSim()"/>
         </div>
       </div>
 
@@ -193,7 +198,7 @@ input[type=number]::-webkit-inner-spin-button{display:none}
             <span class="font-mono text-dim" style="font-size:.6rem;letter-spacing:.13em">PÔR DO SOL</span>
             <span class="badge bg-warning bg-opacity-10 border border-warning text-warning font-mono" style="font-size:.52rem">SIM</span>
           </div>
-          <input id="s-sunset" type="time" value="18:12" class="form-control form-control-sm inp-sim"/>
+          <input id="s-sunset"  type="time"   value="18:12" class="form-control form-control-sm inp-sim" onchange="enviarSim()"/>
         </div>
       </div>
 
@@ -203,8 +208,7 @@ input[type=number]::-webkit-inner-spin-button{display:none}
             <span class="font-mono text-dim" style="font-size:.6rem;letter-spacing:.13em">TETO</span>
             <span class="badge bg-warning bg-opacity-10 border border-warning text-warning font-mono" style="font-size:.52rem">SIM</span>
           </div>
-          <input id="s-ceiling" type="number" value="3500" min="0" max="99999" step="100"
-                 class="form-control form-control-sm inp-sim"/>
+          <input id="s-ceiling" type="number" value="3500"  class="form-control form-control-sm inp-sim" onchange="enviarSim()"/>
           <small class="text-white opacity-75">pés</small>
         </div>
       </div>
@@ -215,8 +219,7 @@ input[type=number]::-webkit-inner-spin-button{display:none}
             <span class="font-mono text-dim" style="font-size:.6rem;letter-spacing:.13em">VISIBILIDADE</span>
             <span class="badge bg-warning bg-opacity-10 border border-warning text-warning font-mono" style="font-size:.52rem">SIM</span>
           </div>
-          <input id="s-vis" type="number" value="9000" min="0" max="9999" step="100"
-                 class="form-control form-control-sm inp-sim"/>
+          <input id="s-vis"     type="number" value="9000"  class="form-control form-control-sm inp-sim" onchange="enviarSim()"/>
           <small class="text-white opacity-75">metros</small>
         </div>
       </div>
@@ -380,6 +383,17 @@ function pollEstado() {
 setInterval(pollEstado, 30000); // atualiza a cada 30 s
 pollEstado();                   // chama imediatamente ao carregar
 
+function enviarSim() {
+  const params = new URLSearchParams({
+    sunrise: document.getElementById('s-sunrise').value,
+    sunset:  document.getElementById('s-sunset').value,
+    ceiling: document.getElementById('s-ceiling').value,
+    visib:   document.getElementById('s-vis').value
+  });
+  fetch('/sim?' + params.toString())
+    .then(() => pollEstado());
+}
+
 function addLog(msg,type){
   const n=new Date(),z=v=>String(v).padStart(2,'0');
   const ts=z(n.getHours())+':'+z(n.getMinutes())+':'+z(n.getSeconds());
@@ -393,7 +407,7 @@ function addLog(msg,type){
 
 // Configuração inicial das abas visuais
 setTimeout(() => {
-  setMode('real');
+  setMode('real', false); // inicia no modo REAL sem notificar o C++
   loadAeroporto();
 }, 200);
 
@@ -501,38 +515,41 @@ server.on("/auto", []() {
 });
 
  server.on("/icao", []() {
-  if (server.hasArg("id")) {
-    String id = server.arg("id");
-    id.toUpperCase();
-    id.trim();
-    g_icaoId = id;
-    g_ssAtualizado = false; // força atualização de nascer/pôr do sol para nova localização
-    fetchWeatherData();           
-    fetchSunriseSunset();         
+    if (server.hasArg("id")) {
+      String id = server.arg("id");
+      id.toUpperCase();
+      id.trim();
+      g_icaoId = id;
+      g_ssAtualizado = false; // força atualização de nascer/pôr do sol para nova localização
+      fetchWeatherData();           
+      fetchSunriseSunset();         
   }
-  server.send(200, "application/json", "{\"ok\":true}");
-});
-
-  server.on("/modo", []() {
-  if (server.hasArg("v")) {
-    String v = server.arg("v");
-    if (v == "real" || v == "sim") g_mode = v;
-  }
-  server.send(200, "application/json", "{\"ok\":true}");
+    server.send(200, "application/json", "{\"ok\":true}");
   });
 
-  server.on(UriBraces("/{}"), []() {
-    String param = server.pathArg(0);
-    if (param == "on") {
-      farolStatus = true; manualOverride = true;
-      digitalWrite(LED_PIN_FAROL, HIGH);
-    } else if (param == "off") {
-      farolStatus = false; manualOverride = true;
-      digitalWrite(LED_PIN_FAROL, LOW);
-    } else if (param == "auto") {
-      manualOverride = false;
+  server.on("/modo", []() {
+    if (server.hasArg("v")) {
+      String v = server.arg("v");
+      if (v == "real" || v == "sim") g_mode = v;
     }
-    sendHtml();
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
+
+  // Rota para atualizar os parâmetros de simulação (visibilidade, teto, nascer/pôr do sol)
+  server.on("/sim", []() {
+    if (server.hasArg("visib"))    g_sim_visib     = server.arg("visib").toInt();
+    if (server.hasArg("ceiling"))  g_sim_ceilingFt = server.arg("ceiling").toInt();
+    if (server.hasArg("sunrise")) {
+      // recebe "05:48" e converte para minutos
+      String sr = server.arg("sunrise");
+      g_sim_sunrise = sr.substring(0,2).toInt() * 60 + sr.substring(3).toInt();
+    }
+    if (server.hasArg("sunset")) {
+      String ss = server.arg("sunset");
+      g_sim_sunset = ss.substring(0,2).toInt() * 60 + ss.substring(3).toInt();
+    }
+    avaliarFarol(); // reavalia imediatamente com os novos valores
+    server.send(200, "application/json", "{\"ok\":true}");
   });
 
   g_icaoId = "SBKP"; // aeroporto padrão ao inicializar
@@ -715,23 +732,29 @@ void parseWeatherData_SS(const String& json)
 
 void avaliarFarol() {
   if (manualOverride) return;
-  if (g_sunrise < 0 || g_sunset < 0) return; // SR/SS ainda não carregados
+
+  int visib     = (g_mode == "sim") ? g_sim_visib     : g_visib;
+  int ceilingFt = (g_mode == "sim") ? g_sim_ceilingFt : g_ceilingFt;
+  int sunrise   = (g_mode == "sim") ? g_sim_sunrise   : g_sunrise;
+  int sunset    = (g_mode == "sim") ? g_sim_sunset    : g_sunset;
+
+  if (sunrise < 0 || sunset < 0) return; // SR/SS ainda não carregados
 
   struct tm t;
   if (!getLocalTime(&t)) return;
   int agora = t.tm_hour * 60 + t.tm_min;
 
-  bool ehNoite = (agora < g_sunrise || agora >= g_sunset);
-  bool ehIMC   = (g_ceilingFt >= 0 && g_ceilingFt < 1500)
-              || (g_visib     >= 0 && g_visib     < 5000);
+  bool ehNoite = (agora < sunrise || agora >= sunset);
+  bool ehIMC   = (ceilingFt >= 0 && ceilingFt < 1500)
+              || (visib     >= 0 && visib     < 5000);
 
   bool deveLigar = ehNoite || ehIMC;
 
   if (deveLigar != farolStatus) {
     farolStatus = deveLigar;
     digitalWrite(LED_PIN_FAROL, deveLigar ? HIGH : LOW);
-    Serial.printf("Farol %s (AUTO) — Noite:%d IMC:%d Agora:%d SR:%d SS:%d\n",
+    Serial.printf("Farol %s (%s) — Noite:%d IMC:%d Agora:%d SR:%d SS:%d\n",
       deveLigar ? "LIGADO" : "DESLIGADO",
-      ehNoite, ehIMC, agora, g_sunrise, g_sunset);
+      g_mode.c_str(), ehNoite, ehIMC, agora, sunrise, sunset);
   }
 }
