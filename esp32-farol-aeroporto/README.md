@@ -1,32 +1,64 @@
 # ESP32 Farol Aeroporto
 
-Projeto em fase inicial para um farol inteligente baseado em ESP32, com foco em automação para uso em ambiente aeroportuário.
+Firmware para ESP32 que controla um farol com base em condições meteorológicas e horário local. O projeto expõe uma interface web para operar o sistema em modo real ou simulado, além de manter um fallback em ponto de acesso quando o Wi-Fi não está disponível.
 
-A ideia principal é consultar APIs externas para obter dados atualizados do aeroporto e do clima, usando essas informações para definir o comportamento do farol e os horários de operação:
+## Visão geral
 
-- OpenWeather API para obter dados de nascer e pôr do sol.
-- AviationWeather para buscar informações do aeroporto, incluindo latitude e longitude.
+O firmware busca dados de meteorologia para decidir se o farol deve ficar ligado ou desligado:
 
-Com a latitude e longitude do aeroporto, o projeto poderá calcular com mais precisão os horários de nascer e pôr do sol e tomar decisões automáticas com base nesses dados.
+- Visibilidade e teto operacional vêm de um METAR consultado pelo código.
+- Nascer e pôr do sol são obtidos pela API da OpenWeather usando a latitude e longitude extraídas do METAR.
+- A lógica liga o farol automaticamente quando está de noite ou quando há condição IMC.
+- Existe override manual para ligar, desligar ou devolver o controle para o modo automático.
 
-## Objetivo
+## Recursos atuais
 
-Este repositório vai concentrar o desenvolvimento do firmware do ESP32, a integração com as APIs e a lógica de automação do farol.
+- Servidor HTTP na porta 80 com página de controle.
+- Modo `real` e modo `sim` para testar a lógica sem depender dos dados externos.
+- Fallback para AP com SSID `Farol-Aeroporto` e senha `12345678`.
+- mDNS com o nome `farol-aeroporto.local` quando conectado ao Wi-Fi.
+- Atualização periódica dos dados a cada 60 segundos.
+- LED do farol no GPIO 13.
 
-## Status atual
+## Requisitos
 
-- Estrutura inicial do projeto criada.
-- Servidor web básico em desenvolvimento.
-- Integração com APIs ainda não implementada.
+- ESP32 com framework Arduino.
+- PlatformIO.
+- Conectividade com Wi-Fi para o modo real.
+- Acesso aos endpoints usados para METAR e OpenWeather.
 
-## Próximos passos
+## Como executar
 
-- Integrar com a API da OpenWeather.
-- Integrar com a API da AviationWeather.
-- Obter e armazenar latitude e longitude do aeroporto.
-- Calcular os horários de nascer e pôr do sol.
-- Ajustar a lógica do farol com base nos dados coletados.
+1. Abra o projeto no VS Code com PlatformIO instalado.
+2. Compile e grave o firmware no ESP32 com o ambiente `esp32dev`.
+3. Se houver conexão Wi-Fi, o dispositivo tenta sincronizar o horário via NTP e expõe a interface web.
+4. Se não conseguir conectar, ele sobe um AP chamado `Farol-Aeroporto`.
 
-## Observação
+## Interface web
 
-Este projeto ainda está em construção e a estrutura pode mudar conforme a implementação evoluir.
+A interface permite:
+
+- Informar o código ICAO do aeroporto.
+- Alternar entre modo real e simulado.
+- Ajustar visibilidade, teto, nascer do sol e pôr do sol no modo simulado.
+- Ligar, desligar ou devolver o controle ao modo automático.
+
+## Endpoints HTTP
+
+- `GET /estado` retorna o estado atual do sistema em JSON.
+- `GET /on` liga o farol em modo manual.
+- `GET /off` desliga o farol em modo manual.
+- `GET /auto` devolve o controle ao automático.
+- `GET /icao?id=SBKP` define o aeroporto e recarrega os dados.
+- `GET /modo?v=real|sim` alterna o modo de operação.
+- `GET /sim?visib=9000&ceiling=3500&sunrise=05:48&sunset=18:12` atualiza os valores simulados.
+
+## Estrutura do projeto
+
+- `src/main.cpp`: lógica principal do firmware, servidor HTTP e controle do farol.
+- `platformio.ini`: configuração do ambiente PlatformIO.
+- `diagram.json` e `wokwi.toml`: suporte para simulação no Wokwi.
+
+## Estado do projeto
+
+O projeto já possui a base funcional de controle, interface web e aquisição de dados. O próximo passo natural é refinar a robustez das integrações externas e melhorar a experiência da interface.
